@@ -1,0 +1,188 @@
+---
+title: "Cal21 Special Election"
+author: "Tyler"
+date: "12/15/2022"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Importing Data
+```{r}
+# reading in csv files for registered voters and actual votes cast
+reg <- read.csv("CA_2021_SpecialElectionData/state_s21_registration_by_s21_srprec/state_s21_registration_by_s21_srprec.csv")
+
+vote <- read.csv("CA_2021_SpecialElectionData/state_s21_voters_by_s21_srprec/state_s21_voters_by_s21_srprec.csv")
+```
+
+# Cleaning data
+```{r}
+# Creating new dataframe "prop" and adding informational columns
+prop <- cbind(reg$COUNTY, reg$FIPS, reg$SRPREC_KEY, reg$SRPREC)
+
+# Looping through columns (excluding informational columns) and creating a proportion of "voted" / "registered", saved into "prop" (a proportion of registered turnout)
+for(i in 7:ncol(vote)) {
+  prop <- cbind(prop, vote[,i]/reg[,i])
+}
+
+# Changing names back after cbind took away column names
+names <- colnames(vote)
+# Excluding column names not in prop
+names <- names[-c(4,5)]
+colnames(prop) <- names
+
+# Replacing all NaN values from creating proportions with NA so they run in regressions
+prop[prop == "NaN"] <- NA
+
+# Reforming the dataframe, not a series of vectors
+prop <- as.data.frame(prop)
+
+# Changing all data into numeric
+prop <- data.frame(apply(prop, 2, function(x) as.numeric(as.character(x))))
+
+# Creating average registered age sum
+avg_reg_age <- 
+  ((reg$DEMM1824 + reg$DEMF1824 + reg$REPM1824 + reg$REPF1824 + reg$DCLM1824 + reg$DCLF1824 + reg$OTHM1824 + reg$OTHF1824)*21) +
+  ((reg$DEMM2534 + reg$DEMF2534 + reg$REPM2534 + reg$REPF2534 + reg$DCLM2534 + reg$DCLF2534 + reg$OTHM2534 + reg$OTHF2534)*29.5) +
+  ((reg$DEMM3544 + reg$DEMF3544 + reg$REPM3544 + reg$REPF3544 + reg$DCLM3544 + reg$DCLF3544 + reg$OTHM3544 + reg$OTHF3544)*39.5) +
+  ((reg$DEMM4554 + reg$DEMF4554 + reg$REPM4554 + reg$REPF4554 + reg$DCLM4554 + reg$DCLF4554 + reg$OTHM4554 + reg$OTHF4554)*49.5) +
+  ((reg$DEMM5564 + reg$DEMF5564 + reg$REPM5564 + reg$REPF5564 + reg$DCLM5564 + reg$DCLF5564 + reg$OTHM5564 + reg$OTHF5564)*59.5) +
+  ((reg$DEMM65PL + reg$DEMF65PL + reg$REPM65PL + reg$REPF65PL + reg$DCLM65PL + reg$DCLF65PL + reg$OTHM65PL + reg$OTHF65PL)*72)
+#Dividing by number of registered
+avg_reg_age <- avg_reg_age / reg$TOTREG_R
+
+# Creating total registered %
+tot_reg <- prop$TOTREG_R * 100
+
+# Creating percentage of non-Democratic registration
+non_dem_reg <- (1-(reg$DEM / reg$TOTREG_R)) * 100
+
+# Creating male registered %
+male_reg <- (reg$MALE / reg$TOTREG_R) *100
+```
+
+# Calculations
+```{r}
+# Summary Statistics
+summary(tot_reg)
+sd(tot_reg)
+summary(avg_reg_age)
+sd(avg_reg_age)
+summary(non_dem_reg)
+sd(non_dem_reg)
+summary(male_reg)
+sd(male_reg)
+
+# Naive regression of registered turnout on average registered age
+mod1 <- lm(tot_reg ~ avg_reg_age)
+summary(mod1)
+
+# Adding control for percentage of non-Democratic registration and interaction of percentage of non-Democratic registration and average registered age
+mod2 <- lm(tot_reg ~ avg_reg_age + non_dem_reg + avg_reg_age*non_dem_reg)
+summary(mod2)
+
+# Adding control for male turnout %
+mod3 <- lm(tot_reg ~ avg_reg_age + non_dem_reg + avg_reg_age*non_dem_reg + male_reg)
+summary(mod3)
+
+# Standard errors of all models
+stderrors1 <- summary(mod1)$coefficients[,2]
+stderrors2 <- summary(mod2)$coefficients[,2]
+stderrors3 <- summary(mod3)$coefficients[,2]
+
+# Confidence Intervals of all models
+lowerbound_rec1 <- mod1$coefficients[2]+ ( qnorm(0.025) * stderrors1[2] )
+as.numeric(lowerbound_rec1)
+upperbound_rec1 <- mod1$coefficients[2]+ ( qnorm(0.975) * stderrors1[2] )
+as.numeric(upperbound_rec1)
+
+lowerbound_rec2 <- mod2$coefficients[2]+ ( qnorm(0.025) * stderrors2[2] )
+as.numeric(lowerbound_rec2)
+upperbound_rec2 <- mod2$coefficients[2]+ ( qnorm(0.975) * stderrors2[2] )
+as.numeric(upperbound_rec2)
+
+lowerbound_rec3 <- mod3$coefficients[2]+ ( qnorm(0.025) * stderrors3[2] )
+as.numeric(lowerbound_rec3)
+upperbound_rec3 <- mod3$coefficients[2]+ ( qnorm(0.975) * stderrors3[2] )
+as.numeric(upperbound_rec3)
+```
+
+# Graphs
+```{r}
+# Graph of model 1
+plot(y=tot_reg,x=avg_reg_age, 
+     main='Model 1',
+     xlab='Average Registered Voter Age',
+     ylab='Registered Voter Turnout')
+# Prediction Line for model 1
+abline(mod1$coefficients[1],mod1$coefficients[2],
+       col='orange',
+       lwd=2)
+
+# Graph of model 2
+plot(y=tot_reg,x=avg_reg_age, 
+     main='Model 2',
+     xlab='Average Registered Voter Age',
+     ylab='Registered Voter Turnout')
+
+# Loops every year in the range of X1 and creates 1-year marginal predicted line of best fit segments to visualize the effect of the interaction term at X2=Q1 and X2=Q3
+for (i in 21:72) {
+  segments(
+    y0=mod2$coefficients[1]+mod2$coefficients[2]*i+mod2$coefficients[3]*45.11+mod2$coefficients[4]*i*45.11,
+    y1=mod2$coefficients[1]+mod2$coefficients[2]*(i+1)+mod2$coefficients[3]*45.11+mod2$coefficients[4]*(i+1)*45.11,
+    x0=i,
+    x1=(i+1),
+    col='red',
+    lwd = 2)
+
+  segments(
+    y0=mod2$coefficients[1]+mod2$coefficients[2]*i+mod2$coefficients[3]*66.13+mod2$coefficients[4]*i*66.13,
+    y1=mod2$coefficients[1]+mod2$coefficients[2]*(i+1)+mod2$coefficients[3]*66.13+mod2$coefficients[4]*(i+1)*66.13,
+    x0=i,
+    x1=(i+1),
+    col='blue',
+    lwd = 2)
+}
+# Legend for model 3 graph
+legend(x= 'topleft',
+       c("Democrat (X2 at Q1)","Non-Democrat (X2 at Q3)"),
+       col = c('blue','red'),
+       border = "black",
+       lwd=2,
+       cex=.5)
+
+# Graph of model 3
+plot(y=tot_reg,x=avg_reg_age, 
+     main='Model 3',
+     xlab='Average Registered Voter Age',
+     ylab='Registered Voter Turnout')
+
+# Loops every year in the range of X1 and creates 1-year marginal predicted line of best fit segments to visualize the effect of the interaction term at X2=Q1 and X2=Q3
+for (i in 21:72) {
+  segments(
+    y0=mod3$coefficients[1]+mod3$coefficients[2]*i+mod3$coefficients[3]*45.11+mod3$coefficients[5]*i*45.11+mod3$coefficients[4]*50.78,
+    y1=mod3$coefficients[1]+mod3$coefficients[2]*(i+1)+mod3$coefficients[3]*45.11+mod3$coefficients[5]*(i+1)*45.11+mod3$coefficients[4]*50.78,
+    x0=i,
+    x1=(i+1),
+    col='red',
+    lwd = 2)
+
+  segments(
+    y0=mod3$coefficients[1]+mod3$coefficients[2]*i+mod3$coefficients[3]*66.13+mod3$coefficients[5]*i*66.13+mod3$coefficients[4]*50.78,
+    y1=mod3$coefficients[1]+mod3$coefficients[2]*(i+1)+mod3$coefficients[3]*66.13+mod3$coefficients[5]*(i+1)*66.13+mod3$coefficients[4]*50.78,
+    x0=i,
+    x1=(i+1),
+    col='blue',
+    lwd = 2)
+}
+# Legend for model 3 graph
+legend(x= 'topleft',
+       c("Democrat (X2 at Q1)","Non-Democrat (X2 at Q3)"),
+       col = c('blue','red'),
+       border = "black",
+       lwd=2,
+       cex=.5)
+```
+
